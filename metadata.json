@@ -1,0 +1,5 @@
+{
+  "name": "SecureShare ABE",
+  "description": "A secure cloud file sharing application utilizing simulated Attribute-Based Encryption (ABE) concepts, enabling granular access control and secret key management.",
+  "requestFramePermissions": []
+}
