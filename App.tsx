@@ -15,7 +15,8 @@ import {
   Key,
   AlertCircle,
   CheckCircle,
-  Search
+  Search,
+  X
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -31,6 +32,11 @@ const App: React.FC = () => {
   // --- Temporary Key Input State ---
   const [keyInputFileId, setKeyInputFileId] = useState<string | null>(null);
   const [keyInputValue, setKeyInputValue] = useState('');
+
+  // --- Upload Modal State ---
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadKey, setUploadKey] = useState('');
 
   // --- Effects ---
   useEffect(() => {
@@ -51,6 +57,9 @@ const App: React.FC = () => {
     setCurrentUser(null);
     setMyUnlockedFiles([]);
     setKeyInputFileId(null);
+    setIsUploadModalOpen(false);
+    setUploadFile(null);
+    setUploadKey('');
   };
 
   const handleRequestAccess = (file: SecureFile) => {
@@ -105,21 +114,65 @@ const App: React.FC = () => {
     }
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0] && currentUser) {
-      const file = e.target.files[0];
+  const handleDownload = (file: SecureFile) => {
+    try {
+      let blob: Blob;
+      let filename = file.name;
+
+      if (file.fileContent) {
+        // Use the actual file content if available (uploaded in this session)
+        blob = file.fileContent;
+      } else {
+        // Mock content for demo files that don't have real content attached
+        const mockContent = `This is the decrypted content for ${file.name}.\n\nSecureShare employs Attribute-Based Encryption (ABE) to ensure only authorized personnel can access this data. In a real deployment, this file would be streamed from our secure encrypted cloud storage.`;
+        blob = new Blob([mockContent], { type: 'text/plain' });
+        // Ensure mock files have an extension for browser handling
+        if (!filename.includes('.')) {
+            filename += '.txt';
+        }
+      }
+
+      // Trigger download
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      
+      setNotification({ msg: `Downloading ${filename}...`, type: 'success' });
+    } catch (error) {
+      console.error("Download failed:", error);
+      setNotification({ msg: "Download failed. Please try again.", type: 'error' });
+    }
+  };
+
+  const handleOpenUploadModal = () => {
+    setUploadFile(null);
+    setUploadKey('');
+    setIsUploadModalOpen(true);
+  };
+
+  const handleConfirmUpload = () => {
+    if (uploadFile && uploadKey && currentUser) {
       const newFile: SecureFile = {
         id: `f-${Date.now()}`,
-        name: file.name,
-        size: `${(file.size / (1024 * 1024)).toFixed(2)} MB`,
+        name: uploadFile.name,
+        size: `${(uploadFile.size / (1024 * 1024)).toFixed(2)} MB`,
         uploadDate: new Date().toLocaleDateString(),
         owner: currentUser.id,
         sensitivityLevel: 'Medium',
         description: 'Uploaded via SecureShare Portal',
-        encryptedKey: `ABE-${Math.floor(Math.random() * 10000)}`
+        encryptedKey: uploadKey,
+        fileContent: uploadFile // Store the actual file object for download
       };
       setFiles([newFile, ...files]);
-      setNotification({ msg: "File encrypted and uploaded securely.", type: 'success' });
+      setNotification({ msg: "File encrypted and uploaded securely with custom key.", type: 'success' });
+      setIsUploadModalOpen(false);
+      setUploadFile(null);
+      setUploadKey('');
     }
   };
 
@@ -229,19 +282,14 @@ const App: React.FC = () => {
             {activeTab === 'files' ? 'Encrypted File Repository' : 'Access Control Management'}
           </h2>
           <div className="flex items-center gap-4">
-            <Button variant="secondary" onClick={() => setShowChat(!showChat)} className="!rounded-full w-10 h-10 !p-0">
-               <Shield className="w-5 h-5 text-blue-600" />
-            </Button>
-            <div className="relative group">
-               <Button variant="primary" className="overflow-hidden">
-                  <Upload className="w-4 h-4" /> Upload
-                  <input 
-                    type="file" 
-                    className="absolute inset-0 opacity-0 cursor-pointer" 
-                    onChange={handleFileUpload}
-                  />
-               </Button>
+            <div className="hidden md:block">
+              <Button variant="ghost" size="sm" className="!p-2 text-slate-400 hover:text-blue-500">
+                <Shield className="w-5 h-5" />
+              </Button>
             </div>
+            <Button variant="primary" onClick={handleOpenUploadModal}>
+              <Upload className="w-4 h-4" /> Upload File
+            </Button>
           </div>
         </header>
 
@@ -267,8 +315,8 @@ const App: React.FC = () => {
                     <div className="p-5 flex-1">
                       <div className="flex items-start justify-between mb-4">
                         <div className={`p-2 rounded-lg ${
-                          status === FileStatus.UNLOCKED ? 'bg-emerald-100 text-emerald-600' : 
-                          status === FileStatus.APPROVED ? 'bg-amber-100 text-amber-600' :
+                          status === FileStatus.UNLOCKED ? 'bg-emerald-50 text-emerald-600' : 
+                          status === FileStatus.APPROVED ? 'bg-amber-50 text-amber-600' :
                           'bg-slate-100 text-slate-500'
                         }`}>
                           <FileText className="w-6 h-6" />
@@ -289,10 +337,15 @@ const App: React.FC = () => {
                     <div className="p-4 bg-slate-50 border-t border-slate-100">
                       {/* ADMIN VIEW */}
                       {currentUser.role === UserRole.ADMIN ? (
-                         <div className="flex justify-between items-center">
-                            <span className="text-xs text-slate-400 font-mono">Key: {file.encryptedKey}</span>
-                            <Button variant="ghost" size="sm" className="text-blue-600" onClick={() => alert("Admin can download directly.")}>
-                              <Download className="w-4 h-4" /> Download
+                         <div className="flex flex-col gap-2">
+                            <span className="text-xs text-slate-400 font-mono block">Key: {file.encryptedKey}</span>
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              className="w-full justify-center bg-white border border-slate-200 text-slate-600 hover:bg-slate-50" 
+                              onClick={() => handleDownload(file)}
+                            >
+                              <Download className="w-4 h-4" /> Admin Download
                             </Button>
                          </div>
                       ) : (
@@ -328,7 +381,11 @@ const App: React.FC = () => {
                             </div>
                           )}
                           {status === FileStatus.UNLOCKED && (
-                            <Button variant="secondary" className="w-full justify-center bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800">
+                            <Button 
+                              onClick={() => handleDownload(file)}
+                              variant="secondary" 
+                              className="w-full justify-center bg-emerald-50 text-emerald-600 hover:bg-emerald-100 border border-emerald-200 shadow-sm transition-all"
+                            >
                                <Download className="w-4 h-4" /> Download File
                             </Button>
                           )}
@@ -418,6 +475,73 @@ const App: React.FC = () => {
       {/* Floating Chat */}
       {showChat && (
         <SecurityChat onClose={() => setShowChat(false)} />
+      )}
+
+      {/* Upload Modal */}
+      {isUploadModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+              <h3 className="font-semibold text-lg text-slate-800">Secure File Upload</h3>
+              <button onClick={() => setIsUploadModalOpen(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Select File to Encrypt</label>
+                <div className="border-2 border-dashed border-slate-200 rounded-lg p-6 text-center hover:bg-slate-50 transition-colors relative group">
+                  {uploadFile ? (
+                    <div className="flex flex-col items-center justify-center gap-2 text-blue-600">
+                      <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                         <FileText className="w-5 h-5" />
+                      </div>
+                      <span className="text-sm font-medium truncate max-w-xs">{uploadFile.name}</span>
+                      <span className="text-xs text-slate-400">{(uploadFile.size / 1024 / 1024).toFixed(2)} MB</span>
+                    </div>
+                  ) : (
+                    <div className="text-slate-400 text-sm">
+                      <Upload className="w-8 h-8 mx-auto mb-2 opacity-50 group-hover:scale-110 transition-transform" />
+                      <p className="font-medium text-slate-600">Click to browse files</p>
+                      <p className="text-xs">Supports PDF, CSV, DOCX</p>
+                    </div>
+                  )}
+                  <input
+                    type="file"
+                    className="absolute inset-0 opacity-0 cursor-pointer"
+                    onChange={(e) => e.target.files && setUploadFile(e.target.files[0])}
+                  />
+                </div>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Define Secret Key</label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <Key className="h-4 w-4 text-slate-400" />
+                  </div>
+                  <input
+                    type="text"
+                    className="w-full pl-10 pr-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-mono"
+                    placeholder="Enter custom encryption key..."
+                    value={uploadKey}
+                    onChange={(e) => setUploadKey(e.target.value)}
+                  />
+                </div>
+                <p className="text-xs text-slate-500 mt-1 flex items-start gap-1">
+                  <AlertCircle className="w-3 h-3 mt-0.5 text-amber-500 flex-shrink-0" />
+                  This key will be required for decryption by authorized users.
+                </p>
+              </div>
+            </div>
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setIsUploadModalOpen(false)}>Cancel</Button>
+              <Button onClick={handleConfirmUpload} disabled={!uploadFile || !uploadKey} className="min-w-[120px]">
+                <Lock className="w-4 h-4" /> Encrypt
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
