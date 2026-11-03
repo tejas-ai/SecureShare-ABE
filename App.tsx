@@ -20,8 +20,14 @@ import {
 } from 'lucide-react';
 
 const App: React.FC = () => {
+  // Direct links open the requested demo portal. These are not authentication checks.
+  const portalPath = window.location.pathname.replace(/\/+$/, '').toLowerCase();
+  const isAdminPortal = portalPath === '/admin';
+  const isClientPortal = portalPath === '/client';
   // --- State ---
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [currentUser, setCurrentUser] = useState<User | null>(() =>
+    isAdminPortal ? MOCK_ADMIN : isClientPortal ? MOCK_USER : null
+  );
   const [files, setFiles] = useState<SecureFile[]>(INITIAL_FILES);
   const [requests, setRequests] = useState<AccessRequest[]>([]);
   const [myUnlockedFiles, setMyUnlockedFiles] = useState<string[]>([]); // Array of file IDs
@@ -54,6 +60,11 @@ const App: React.FC = () => {
   };
 
   const handleLogout = () => {
+    // Leave a dedicated portal by returning to the demo's role selector.
+    if (isAdminPortal || isClientPortal) {
+      window.location.assign('/');
+      return;
+    }
     setCurrentUser(null);
     setMyUnlockedFiles([]);
     setKeyInputFileId(null);
